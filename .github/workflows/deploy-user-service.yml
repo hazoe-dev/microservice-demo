@@ -12,6 +12,7 @@ env:
   ECR_REPOSITORY: user-service
   ECS_CLUSTER: my-cluster
   ECS_SERVICE: user-service
+  ECS_TASK_FAMILY: user-service-task-definition
   CONTAINER_NAME: user-service
 
 jobs:
@@ -57,7 +58,7 @@ jobs:
       id: task-def
       uses: aws-actions/amazon-ecs-render-task-definition@v1
       with:
-        task-definition-family: ${{ env.ECS_SERVICE }}
+        task-definition-family: ${{ env.ECS_TASK_FAMILY }}
         container-name: ${{ env.CONTAINER_NAME }}
         image: ${{ steps.build-image.outputs.image }}
 
