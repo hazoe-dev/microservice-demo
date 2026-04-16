@@ -4,6 +4,7 @@ on:
     push:
         paths:
             - 'order-service/**'
+    workflow_dispatch:
 env:
   AWS_REGION: ap-southeast-1
   ECR_REPOSITORY: order-service

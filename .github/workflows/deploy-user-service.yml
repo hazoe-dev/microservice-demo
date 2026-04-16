@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - 'user-service/**'   # chỉ chạy khi có thay đổi trong user-service
-
+  workflow_dispatch:   # cho phép chạy thủ công từ GitHub Actions UI
 env:
   AWS_REGION: ap-southeast-1
   ECR_REPOSITORY: user-service
