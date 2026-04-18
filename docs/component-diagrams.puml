@@ -1,0 +1,176 @@
+' ============================================================
+' Component Diagrams — Microservice Demo
+' ============================================================
+
+
+' ------------------------------------------------------------
+' 1. System Context Diagram
+' ------------------------------------------------------------
+@startuml 01-system-context
+title System Context
+
+actor "Client\n(Browser / API Consumer)" as Client
+
+rectangle "Microservice Demo System" {
+    component "User Service\n:8081" as US
+    component "Order Service\n:8082" as OS
+}
+
+Client --> OS : "POST /api/orders\nGET  /api/orders"
+Client --> US : "GET /api/users/{id}"
+OS     --> US : "GET /api/users/{id}\n[HTTP REST]"
+@enduml
+
+
+' ------------------------------------------------------------
+' 2. Container Diagram (C4 style)
+' ------------------------------------------------------------
+@startuml 02-container
+title Container Diagram
+
+actor Client
+
+rectangle "Docker / AWS ECS  (ap-southeast-1)" {
+
+    rectangle "User Service  :8081" as US_Box {
+        component "UserController"   as UC
+        component "UserRepository\n(in-memory HashMap)" as UR
+    }
+
+    rectangle "Order Service  :8082" as OS_Box {
+        component "OrderController"  as OC
+        component "OrderService"     as OSvc
+        component "UserClient\n(RestTemplate)" as UCli
+        database  "H2 Database\njdbc:h2:mem:orderdb" as DB
+    }
+}
+
+Client --> OC   : HTTP
+Client --> UC   : HTTP
+OC     --> OSvc
+OSvc   --> UCli
+UCli   --> UC   : "GET /api/users/{id}\n[HTTP REST]"
+UC     --> UR
+OSvc   --> DB   : JPA
+@enduml
+
+
+' ------------------------------------------------------------
+' 3. Order Service — Internal Components
+' ------------------------------------------------------------
+@startuml 03-order-service-components
+title Order Service — Internal Components
+
+package "Order Service  (dev.hazoe.order_service)" {
+
+    component "OrderController\n--\nPOST /api/orders\nGET  /api/orders\nGET  /api/orders/{id}" as OC
+
+    component "OrderService\n--\ncreateOrder()\ngetOrders()\ngetOrderById()" as OSvc
+
+    component "UserClient\n--\ngetUserById(Long userId)\nvia RestTemplate" as UCli
+
+    component "OrderRepository\n--\nJpaRepository<Order, Long>" as ORepo
+
+    component "Order  [Entity]\n--\nid, userId, userName\nproduct, amount, status" as OEnt
+
+    component "Actuator\n--\n/actuator/health" as Act
+
+    database "H2 In-Memory DB\norderdb" as H2
+}
+
+component "User Service\n:8081" as ExtUS
+
+OC    --> OSvc
+OSvc  --> UCli
+OSvc  --> ORepo
+ORepo --> OEnt
+OEnt  --> H2
+UCli  --> ExtUS : "HTTP GET /api/users/{id}"
+@enduml
+
+
+' ------------------------------------------------------------
+' 4. User Service — Internal Components
+' ------------------------------------------------------------
+@startuml 04-user-service-components
+title User Service — Internal Components
+
+package "User Service  (dev.hazoe.user_service)" {
+
+    component "UserController\n--\nGET /api/users/{id}\n--\nMap<Long, UserResponse> USERS\n(static in-memory, seeded: 1, 2, 3)" as UC
+
+    component "UserResponse  [DTO]\n--\nid, name, email" as UResp
+}
+
+UC --> UResp
+@enduml
+
+
+' ------------------------------------------------------------
+' 5. Sequence Diagram — Create Order Flow
+' ------------------------------------------------------------
+@startuml 05-sequence-create-order
+title Sequence — Create Order
+
+participant "Client"          as C
+participant "OrderController" as OC
+participant "OrderService"    as OS
+participant "UserClient"      as UCli
+participant "User Service"    as US
+database    "H2 Database"     as DB
+participant "Spring MVC"      as SP
+
+C   -> OC   : POST /api/orders\n{userId, product, amount}
+OC  -> OS   : createOrder(request)
+OS  -> UCli : getUserById(userId)
+UCli -> US  : GET /api/users/{userId}
+
+alt User found  (200 OK)
+    US   --> UCli : 200 {id, name, email}
+    UCli --> OS   : Optional<UserResponse>
+    note right of OS
+        order.setUserId(request.getUserId())
+        order.setUserName(user.getName())
+        order.setProduct(request.getProduct())
+        order.setAmount(request.getAmount())
+    end note
+    OS   -> DB    : orderRepository.save(order)
+    DB   --> OS   : Order (with generated id)
+    OS   --> OC   : OrderResponse
+    OC   --> C    : 201 Created
+else User not found  (404)
+    US   --> UCli : 404 Not Found
+    UCli --> OS   : Optional.empty()
+    OS   -> SP    : throw ResponseStatusException\n(BAD_REQUEST, "User not found: {id}")
+    SP   --> C    : 400 Bad Request
+end
+@enduml
+
+
+' ------------------------------------------------------------
+' 6. Deployment Diagram — AWS
+' ------------------------------------------------------------
+@startuml 06-deployment-aws
+title Deployment Diagram — AWS
+
+node "GitHub Actions\nCI/CD" as GH
+
+cloud "AWS  (ap-southeast-1)" {
+
+    rectangle "ECR" as ECR {
+        artifact "user-service"  as ECR_US
+        artifact "order-service" as ECR_OS
+    }
+
+    node "ECS Cluster: my-cluster" {
+        rectangle "ECS Service: user-service\nTask: user-service-task-definition\nPort: 8081" as ECS_US
+        rectangle "ECS Service: order-service\nTask: order-service-task-definition\nPort: 8082" as ECS_OS
+    }
+}
+
+GH      --> ECR_US  : docker push
+GH      --> ECR_OS  : docker push
+ECR_US  --> ECS_US  : pull image
+ECR_OS  --> ECS_OS  : pull image
+ECS_OS  --> ECS_US  : "HTTP REST\nUSER_SERVICE_URL=\nhttp://user-service:8081"
+@enduml
